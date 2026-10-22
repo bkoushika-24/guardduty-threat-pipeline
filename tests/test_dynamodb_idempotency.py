@@ -147,3 +147,36 @@ def test_nonpositive_lease_is_rejected(table):
             table=table,
             lease_seconds=0,
         )
+
+def test_mark_completed_rejects_expired_lease(store, table, monkeypatch):
+    import src.dynamodb_idempotency as module
+
+    monkeypatch.setattr(module.time, "time", lambda: 1000)
+    table.update_item.side_effect = conditional_failure("UpdateItem")
+
+    with pytest.raises(ValueError, match="not active"):
+        store.mark_completed(
+            "account#region#finding-1",
+            "owner-1",
+        )
+
+    kwargs = table.update_item.call_args.kwargs
+    assert "lease_until > :now" in kwargs["ConditionExpression"]
+    assert kwargs["ExpressionAttributeValues"][":now"] == 1000
+
+
+def test_release_rejects_expired_lease(store, table, monkeypatch):
+    import src.dynamodb_idempotency as module
+
+    monkeypatch.setattr(module.time, "time", lambda: 1000)
+    table.delete_item.side_effect = conditional_failure("DeleteItem")
+
+    with pytest.raises(ValueError, match="not active"):
+        store.release(
+            "account#region#finding-1",
+            "owner-1",
+        )
+
+    kwargs = table.delete_item.call_args.kwargs
+    assert "lease_until > :now" in kwargs["ConditionExpression"]
+    assert kwargs["ExpressionAttributeValues"][":now"] == 1000

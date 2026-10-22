@@ -1,4 +1,3 @@
-
 import time
 import uuid
 from typing import Any
@@ -124,9 +123,11 @@ class DynamoDBIdempotencyStore:
             return ClaimResult.IN_PROGRESS, None
 
     def mark_completed(self, key: str, owner_token: str) -> None:
-        """Complete a finding only if this invocation owns its claim."""
+        """Complete a finding only if this invocation owns an active claim."""
         if not owner_token:
             raise ValueError("Owner token is required")
+
+        now = int(time.time())
 
         try:
             self.table.update_item(
@@ -137,7 +138,8 @@ class DynamoDBIdempotencyStore:
                 ),
                 ConditionExpression=(
                     "#status = :in_progress "
-                    "AND owner_token = :owner"
+                    "AND owner_token = :owner "
+                    "AND lease_until > :now"
                 ),
                 ExpressionAttributeNames={
                     "#status": "status",
@@ -146,27 +148,31 @@ class DynamoDBIdempotencyStore:
                     ":completed": ClaimResult.COMPLETED.value,
                     ":in_progress": ClaimResult.IN_PROGRESS.value,
                     ":owner": owner_token,
+                    ":now": now,
                 },
             )
 
         except ClientError as exc:
             if self._error_code(exc) == "ConditionalCheckFailedException":
                 raise ValueError(
-                    "Claim is not in progress under this owner"
+                    "Claim is not active under this owner"
                 ) from exc
             raise
 
     def release(self, key: str, owner_token: str) -> None:
-        """Release only the claim owned by this invocation."""
+        """Release only a claim still active under this owner."""
         if not owner_token:
             raise ValueError("Owner token is required")
+
+        now = int(time.time())
 
         try:
             self.table.delete_item(
                 Key={"idempotency_key": key},
                 ConditionExpression=(
                     "#status = :in_progress "
-                    "AND owner_token = :owner"
+                    "AND owner_token = :owner "
+                    "AND lease_until > :now"
                 ),
                 ExpressionAttributeNames={
                     "#status": "status",
@@ -174,9 +180,13 @@ class DynamoDBIdempotencyStore:
                 ExpressionAttributeValues={
                     ":in_progress": ClaimResult.IN_PROGRESS.value,
                     ":owner": owner_token,
+                    ":now": now,
                 },
             )
 
         except ClientError as exc:
-            if self._error_code(exc) != "ConditionalCheckFailedException":
-                raise
+            if self._error_code(exc) == "ConditionalCheckFailedException":
+                raise ValueError(
+                    "Claim is not active under this owner"
+                ) from exc
+            raise
