@@ -1,0 +1,23 @@
+﻿{
+  "version": "0",
+  "id": "evt-demo-001",
+  "detail-type": "GuardDuty Finding",
+  "source": "aws.guardduty",
+  "account": "111122223333",
+  "time": "2026-10-22T14:00:00Z",
+  "region": "us-east-1",
+  "resources": [],
+  "detail": {
+    "accountId": "111122223333",
+    "region": "us-east-1",
+    "id": "demo-finding-001",
+    "type": "UnauthorizedAccess:EC2/SSHBruteForce",
+    "severity": 8.2,
+    "resource": {
+      "resourceType": "Instance",
+      "instanceDetails": {
+        "instanceId": "i-0123456789abcdef0"
+      }
+    }
+  }
+}
