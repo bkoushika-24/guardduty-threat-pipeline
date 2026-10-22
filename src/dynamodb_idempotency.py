@@ -1,3 +1,4 @@
+from decimal import Decimal
 import time
 import uuid
 from typing import Any
@@ -86,7 +87,7 @@ class DynamoDBIdempotencyStore:
             raise RuntimeError("Idempotency record has an unknown status")
 
         current_lease = item.get("lease_until")
-        if not isinstance(current_lease, (int, float)):
+        if not isinstance(current_lease, (int, float, Decimal)):
             raise RuntimeError("In-progress record has no valid lease")
 
         if current_lease > now:
