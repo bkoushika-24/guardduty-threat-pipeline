@@ -1,4 +1,5 @@
-﻿import json
+﻿
+import json
 import logging
 from typing import Any
 
@@ -39,8 +40,6 @@ def sqs_lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 raise ValueError("SQS message body must be a JSON object")
 
             response = lambda_handler(finding, context)
-
- 
             status_code = response.get("statusCode")
 
             if status_code != 200:
@@ -60,10 +59,11 @@ def sqs_lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                     "itemIdentifier": message_id,
                 })
 
-        except Exception:
-            logger.exception(json.dumps({
+        except Exception as exc:
+            logger.error(json.dumps({
                 "event": "sqs_record_processing_failed",
                 "message_id": message_id,
+                "error_type": type(exc).__name__,
             }))
 
             if isinstance(message_id, str) and message_id:
@@ -76,3 +76,21 @@ def sqs_lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 raise
 
     return {"batchItemFailures": batch_item_failures}
+
+def test_non_string_body_marks_only_record_failed():
+    event = {
+        "Records": [
+            {
+                "messageId": "message-bad-body",
+                "body": {"unexpected": "object"},
+            }
+        ]
+    }
+
+    response = sqs_lambda_handler(event, None)
+
+    assert response == {
+        "batchItemFailures": [
+            {"itemIdentifier": "message-bad-body"}
+        ]
+    }

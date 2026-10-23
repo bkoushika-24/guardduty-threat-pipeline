@@ -1,0 +1,8 @@
+﻿{
+  "Records": [
+    {
+      "messageId": "local-test-message-001",
+      "body": "{\"version\":\"0\",\"id\":\"local-test-event-001\",\"detail-type\":\"GuardDuty Finding\",\"source\":\"aws.guardduty\",\"account\":\"123456789012\",\"region\":\"us-east-1\",\"detail\":{\"id\":\"local-test-finding-001\",\"accountId\":\"123456789012\",\"region\":\"us-east-1\",\"type\":\"UnauthorizedAccess:IAMUser/ConsoleLogin\",\"severity\":8.0,\"resource\":{\"resourceType\":\"AccessKey\",\"accessKeyDetails\":{\"userName\":\"test-user\"}}}}"
+    }
+  ]
+}

@@ -1,0 +1,177 @@
+﻿AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: GuardDuty threat detection and alerting pipeline
+
+Parameters:
+  NotificationEmail:
+    Type: String
+    Default: ''
+    Description: Optional email address for GuardDuty alerts
+
+Conditions:
+  HasNotificationEmail: !Not
+    - !Equals
+      - !Ref NotificationEmail
+      - ''
+
+Globals:
+  Function:
+    Runtime: python3.13
+    Architectures:
+      - x86_64
+    Timeout: 30
+    MemorySize: 256
+    Environment:
+      Variables:
+        APP_ENV: production
+        IDEMPOTENCY_TABLE: !Ref IdempotencyTable
+        SNS_TOPIC_ARN: !Ref AlertsTopic
+        CLOUDWATCH_METRICS_ENABLED: 'true'
+
+Resources:
+  AlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: guardduty-threat-alerts
+
+  EmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasNotificationEmail
+    Properties:
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+      TopicArn: !Ref AlertsTopic
+
+  IdempotencyTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: guardduty-idempotency
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: idempotency_key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: idempotency_key
+          KeyType: HASH
+
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: guardduty-findings-dlq
+      MessageRetentionPeriod: 1209600
+
+  FindingsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: guardduty-findings
+      VisibilityTimeout: 180
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+        maxReceiveCount: 5
+
+  FindingsQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref FindingsQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowEventBridgeToSendFindings
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt FindingsQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt GuardDutyRule.Arn
+
+  GuardDutyRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: guardduty-high-severity-findings
+      Description: Route GuardDuty findings with severity 7 or higher
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.guardduty
+        detail-type:
+          - GuardDuty Finding
+        detail:
+          severity:
+            - numeric:
+                - '>='
+                - 7
+      Targets:
+        - Id: FindingsQueueTarget
+          Arn: !GetAtt FindingsQueue.Arn
+
+  ThreatProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: guardduty-threat-processor
+      CodeUri: .
+      Handler: src.sqs_handler.sqs_lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref IdempotencyTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt AlertsTopic.TopicName
+        - Statement:
+            - Sid: PublishPipelineMetrics
+              Effect: Allow
+              Action:
+                - cloudwatch:PutMetricData
+              Resource: '*'
+              Condition:
+                StringEquals:
+                  cloudwatch:namespace: SecureGuardDutyPipeline
+      Events:
+        FindingsQueueEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt FindingsQueue.Arn
+            BatchSize: 10
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+  DeadLetterQueueAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: guardduty-dlq-has-messages
+      AlarmDescription: Alarm when GuardDuty findings enter the dead-letter queue.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt DeadLetterQueue.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlertsTopic
+
+Outputs:
+  FindingsQueueUrl:
+    Description: SQS queue URL
+    Value: !Ref FindingsQueue
+
+  DeadLetterQueueUrl:
+    Description: Dead-letter queue URL
+    Value: !Ref DeadLetterQueue
+
+  AlertsTopicArn:
+    Description: SNS alert topic ARN
+    Value: !Ref AlertsTopic
+
+  IdempotencyTableName:
+    Description: DynamoDB idempotency table name
+    Value: !Ref IdempotencyTable
+
+  ThreatProcessorFunctionName:
+    Description: Lambda processor name
+    Value: !Ref ThreatProcessorFunction

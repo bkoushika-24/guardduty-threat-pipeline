@@ -190,3 +190,20 @@ def test_missing_status_code_marks_record_failed(monkeypatch):
             {"itemIdentifier": "message-no-status"}
         ]
     }
+def test_empty_batch_returns_no_failures():
+    response = sqs_lambda_handler({"Records": []}, None)
+
+    assert response == {"batchItemFailures": []}
+
+
+def test_missing_message_id_fails_invocation():
+    event = {
+        "Records": [
+            {
+                "body": json.dumps(load_finding()),
+            }
+        ]
+    }
+
+    with pytest.raises(ValueError, match="messageId"):
+        sqs_lambda_handler(event, None)

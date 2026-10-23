@@ -2,3 +2,24 @@
 .pytest_cache/
 .env
 *.pyc
+
+# SAM build artifacts
+.aws-sam/
+
+# Python environments and caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local secrets and configuration
+.env
+.env.*
+!.env.example
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

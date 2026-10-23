@@ -1,0 +1,8 @@
+{
+  "ThreatProcessorFunction": {
+    "APP_ENV": "local",
+    "IDEMPOTENCY_TABLE": "",
+    "SNS_TOPIC_ARN": "",
+    "CLOUDWATCH_METRICS_ENABLED": "false"
+  }
+}
